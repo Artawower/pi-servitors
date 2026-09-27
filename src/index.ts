@@ -12,6 +12,14 @@ import { DelegationStatusView } from "./ui/delegation-status.ts";
 
 const ROLE_SCHEMA = StringEnum(["coder", "reviewer", "researcher-code"] as const);
 
+function hasOperationalError(details: unknown): boolean {
+  return Boolean(
+    details &&
+      typeof details === "object" &&
+      (details as Record<string, unknown>).error,
+  );
+}
+
 function normalizeRole(value: string): "coder" | "reviewer" | "researcher-code" | null {
   const role = value.trim().toLowerCase();
   if (role === "researcher") return "researcher-code";
@@ -80,7 +88,7 @@ export default function piServitors(pi: ExtensionAPI) {
   };
 
   pi.on("tool_result", async (event, ctx) => {
-    if (event.toolName !== "link_send" || event.isError) return;
+    if (event.toolName !== "link_send" || event.isError || hasOperationalError(event.details)) return;
 
     const message = typeof event.input.message === "string" ? event.input.message : null;
     const target = typeof event.input.to === "string" ? event.input.to : null;
