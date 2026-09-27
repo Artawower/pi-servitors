@@ -1,6 +1,6 @@
 {
   "name": "pi-servitors",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Persistent Pi servitor orchestration with pluggable worker hosts and event-driven pi-link callbacks.",
   "type": "module",
   "keywords": [
