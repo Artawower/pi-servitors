@@ -217,3 +217,43 @@ test("doctor reports backend, bundled dependencies, profiles, and Lead connectiv
   assert.equal(result.lead_link?.name, "lead@team");
   assert.equal(result.dependencies.every((item) => item.exists === true), true);
 });
+
+test("ensureRole propagates configured extensions when included in dependency harness", async () => {
+  class CustomDependencies extends FakeDependencies {
+    override buildPiArgs(role: Role, linkName: string, _cwd?: string): string[] {
+      return [
+        "-ne",
+        "-e",
+        "/deps/open-agents.ts",
+        "-e",
+        "/deps/link.ts",
+        "-e",
+        "npm:@tian.zuo/pi-antigravity",
+        "--agent",
+        `profile-${role}`,
+        "--link-name",
+        linkName,
+      ];
+    }
+  }
+
+  const host = new FakeHost();
+  const link = new FakeLink();
+  const profiles = new FakeProfiles();
+  const dependencies = new CustomDependencies();
+  const runtime = new WorkerRuntime({
+    hosts: [host],
+    link,
+    profiles,
+    dependencies,
+    lock: new ImmediateLock(),
+  });
+
+  const result = await runtime.ensureRole("/tmp/test-swarm", "coder");
+  assert.equal(result.status, "ready");
+  assert.equal(host.runCalls.length, 1);
+  assert.ok(host.runCalls[0]?.includes("npm:@tian.zuo/pi-antigravity"));
+  assert.ok(result.harness.includes("npm:@tian.zuo/pi-antigravity"));
+});
+
+

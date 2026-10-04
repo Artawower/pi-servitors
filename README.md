@@ -70,6 +70,37 @@ Lead
 
 Workers are not created until their role is requested.
 
+## Worker Extensions
+
+By default, workers start in a lean environment (`-ne`) without ambient user extensions. To enable model provider extensions (such as Antigravity) or custom tools in subagent worker sessions, declare them in your Pi `settings.json` (`~/.pi/agent/settings.json` or `.pi/settings.json`):
+
+```json
+{
+  "servitors": {
+    "extensions": [
+      "npm:@tian.zuo/pi-antigravity"
+    ]
+  }
+}
+```
+
+Or create a dedicated `.pi/servitors.json`:
+
+```json
+{
+  "extensions": [
+    "npm:@tian.zuo/pi-antigravity"
+  ],
+  "roles": {
+    "researcher-code": {
+      "extensions": ["npm:pi-browser-model"]
+    }
+  }
+}
+```
+
+Extensions can also be supplied via the `PI_SERVITORS_EXTENSIONS` environment variable (comma-separated).
+
 ## Development
 
 ```shell

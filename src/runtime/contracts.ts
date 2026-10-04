@@ -18,7 +18,7 @@ export interface WorkerProfileStore {
 export interface WorkerDependencySet {
   assertAvailable(): Promise<void>;
   status(): Promise<Array<Record<string, unknown> & { exists: boolean }>>;
-  buildPiArgs(role: Role, linkName: string): string[];
+  buildPiArgs(role: Role, linkName: string, cwd?: string): string[];
 }
 
 export interface RuntimeMutex {

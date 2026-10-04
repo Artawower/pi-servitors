@@ -128,7 +128,7 @@ export class WorkerRuntime {
       await host.run(
         ctx.host,
         slot,
-        ["pi", ...this.dependencies.buildPiArgs(role, target)],
+        ["pi", ...this.dependencies.buildPiArgs(role, target, ctx.host.cwd)],
         signal,
       );
       await host.waitForWorker(ctx.host, slot, signal);
@@ -422,7 +422,7 @@ export function readyPayload(
     slot: slot.id,
     cwd: ctx.host.cwd,
     profile: ROLE_CONFIG[role].profile,
-    harness: dependencies.buildPiArgs(role, target),
+    harness: dependencies.buildPiArgs(role, target, ctx.host.cwd),
     link,
   };
 }

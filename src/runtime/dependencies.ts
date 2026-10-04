@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 import { ROLE_CONFIG } from "../config.ts";
 import { RuntimeFailure } from "../errors.ts";
 import type { Role } from "../types.ts";
+import {
+  loadServitorConfig,
+  resolveRoleExtensions,
+  type ServitorConfig,
+} from "./servitor-config.ts";
 
 export type RuntimeDependency = {
   name: "pi-link" | "pi-open-agents";
@@ -12,11 +17,19 @@ export type RuntimeDependency = {
 
 export class RuntimeDependencies {
   readonly packageRoot: string;
+  private readonly env: NodeJS.ProcessEnv;
+  private readonly configOverrides: ServitorConfig | undefined;
   readonly piLink: RuntimeDependency;
   readonly openAgents: RuntimeDependency;
 
-  constructor(packageRoot = fileURLToPath(new URL("../../", import.meta.url))) {
+  constructor(
+    packageRoot = fileURLToPath(new URL("../../", import.meta.url)),
+    env: NodeJS.ProcessEnv = process.env,
+    configOverrides?: ServitorConfig,
+  ) {
     this.packageRoot = packageRoot;
+    this.env = env;
+    this.configOverrides = configOverrides;
     this.piLink = {
       name: "pi-link",
       extensionPath: path.join(packageRoot, "node_modules", "pi-link", "index.ts"),
@@ -55,19 +68,28 @@ export class RuntimeDependencies {
     }
   }
 
-  buildPiArgs(role: Role, linkName: string): string[] {
-    return [
+  buildPiArgs(role: Role, linkName: string, cwd: string = process.cwd()): string[] {
+    const config = this.configOverrides ?? loadServitorConfig(cwd, this.env);
+    const extraExtensions = resolveRoleExtensions(config, role);
+
+    const args = [
       "-ne",
       "-e",
       this.openAgents.extensionPath,
       "-e",
       this.piLink.extensionPath,
+    ];
+    for (const ext of extraExtensions) {
+      args.push("-e", ext);
+    }
+    args.push(
       "--no-skills",
       "--no-prompt-templates",
       "--agent",
       ROLE_CONFIG[role].profile,
       "--link-name",
       linkName,
-    ];
+    );
+    return args;
   }
 }
