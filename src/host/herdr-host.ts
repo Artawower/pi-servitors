@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { SHELL_READY_TIMEOUT_MS, WORKER_START_TIMEOUT_MS } from "../config.ts";
-import type { CommandResult, CommandRunner } from "../command.ts";
+import type { CommandRunner } from "../command.ts";
 import { runChecked } from "../command.ts";
 import { RuntimeFailure } from "../errors.ts";
 import type {
@@ -14,21 +15,23 @@ import type {
 import type { WorkerHost } from "./worker-host.ts";
 
 const POLL_MS = 250;
+const SHELL_PROBE_TIMEOUT_MS = 2_000;
 
 type JsonObject = Record<string, unknown>;
+type JsonContainer = JsonObject | JsonObject[];
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(signal.reason ?? new Error("aborted"));
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(signal.reason ?? new Error("aborted"));
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error("aborted"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -89,11 +92,10 @@ function slotCwd(obj: JsonObject): string | undefined {
   return firstString(obj, ["foreground_cwd", "cwd"]);
 }
 
-function unwrap(payload: unknown): unknown {
-  if (payload && typeof payload === "object" && "result" in payload) {
-    return (payload as JsonObject).result;
-  }
-  return payload;
+function unwrap(payload: unknown): JsonContainer {
+  const value = isObject(payload) && "result" in payload ? payload.result : payload;
+  if (Array.isArray(value)) return value.filter(isObject);
+  return isObject(value) ? value : {};
 }
 
 function listResult(payload: unknown, key: string): JsonObject[] {
@@ -347,12 +349,54 @@ export class HerdrHost implements WorkerHost {
     slot: SlotRef,
     signal?: AbortSignal,
   ): Promise<void> {
+    signal?.throwIfAborted();
     const deadline = Date.now() + SHELL_READY_TIMEOUT_MS;
     let last: SlotInspection | undefined;
     while (Date.now() < deadline) {
+      signal?.throwIfAborted();
       last = await this.inspectSlot(ctx, slot, signal);
-      if (last.kind === "shell") return;
-      await sleep(POLL_MS, signal);
+      if (last.kind === "worker") {
+        throw new RuntimeFailure(`managed pane ${slot.id} is occupied by a worker; refusing shell probe`);
+      }
+      if (last.kind === "shell") {
+        // Foreground ownership also holds during shell rc/environment restoration.
+        // Only execution of a fresh probe proves the line editor accepts commands.
+        const nonce = randomUUID();
+        const token = `__psv_ready_${nonce}`;
+        // The assembled token must NOT occur in PTY echo of the typed command.
+        const probe = `printf %s%s __psv_ready_ ${nonce}`;
+        const runBudget = Math.min(SHELL_PROBE_TIMEOUT_MS, deadline - Date.now());
+        if (runBudget <= 0) break;
+        await runChecked(this.runner, "herdr", ["pane", "run", slot.id, probe], {
+          cwd: ctx.cwd,
+          ...(signal ? { signal } : {}),
+          timeout: runBudget,
+        });
+        const waitBudget = Math.min(SHELL_PROBE_TIMEOUT_MS, deadline - Date.now());
+        if (waitBudget <= 0) break;
+        const result = await this.runner.exec(
+          "herdr",
+          [
+            "pane", "wait-output", slot.id, "--match", token,
+            "--timeout", String(waitBudget), "--source", "recent-unwrapped",
+          ],
+          {
+            cwd: ctx.cwd,
+            ...(signal ? { signal } : {}),
+            timeout: waitBudget + 1_000,
+          },
+        );
+        signal?.throwIfAborted();
+        if (result.code === 0) return;
+        // Herdr reports wait expiry as a CLI error. Other failures must not be
+        // hidden as shell startup or retried against an invalid pane.
+        const output = `${result.stderr}\n${result.stdout}`.trim();
+        if (!/timed out|timeout/i.test(output)) {
+          throw new RuntimeFailure(`shell readiness probe failed in pane ${slot.id}: ${output}`);
+        }
+      }
+      const remaining = deadline - Date.now();
+      if (remaining > 0) await sleep(Math.min(POLL_MS, remaining), signal);
     }
     throw new RuntimeFailure(
       `managed pane ${slot.id} did not reach an available interactive shell within ` +
@@ -378,15 +422,26 @@ export class HerdrHost implements WorkerHost {
     slot: SlotRef,
     signal?: AbortSignal,
   ): Promise<WorkerRef> {
+    signal?.throwIfAborted();
     const deadline = Date.now() + WORKER_START_TIMEOUT_MS;
     let last: WorkerRef | null = null;
     while (Date.now() < deadline) {
+      signal?.throwIfAborted();
       const current = await this.getAgentBySlot(ctx, slot.id, signal);
+      signal?.throwIfAborted();
       if (current) {
         last = current;
         if (current.state && current.state !== "unknown") return current;
       }
-      await sleep(POLL_MS, signal);
+      const remaining = deadline - Date.now();
+      if (remaining > 0) await sleep(Math.min(POLL_MS, remaining), signal);
+    }
+    if (!last) {
+      throw new RuntimeFailure(
+        `No Pi worker was detected in pane ${slot.id} within ` +
+          `${Math.round(WORKER_START_TIMEOUT_MS / 1000)}s; the launch command may not have ` +
+          "executed or Pi may have exited during startup. Inspect the pane before retrying.",
+      );
     }
     throw new RuntimeFailure(
       `Pi was detected in pane ${slot.id} but did not become ready within ` +
