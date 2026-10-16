@@ -99,6 +99,10 @@ Or create a dedicated `.pi/servitors.json`:
 }
 ```
 
+Global settings are read only from `PI_CODING_AGENT_DIR` when set, otherwise
+`~/.pi/agent`. Settings from other installations (such as `~/.pig/agent`) are not
+merged. Global and project extension lists are combined and deduplicated.
+
 Extensions can also be supplied via the `PI_SERVITORS_EXTENSIONS` environment variable (comma-separated).
 
 ## Development

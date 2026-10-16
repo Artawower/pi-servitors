@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -88,6 +88,62 @@ test("resolveRoleExtensions combines common and role-specific extensions", () =>
   assert.deepEqual(reviewerExts, ["npm:common-1", "npm:common-2", "npm:reviewer-tool"]);
 });
 
+test("default Pi config ignores a separate pig installation", async (t) => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "servitors-home-"));
+  t.mock.method(os, "homedir", () => home);
+  const piDir = path.join(home, ".pi", "agent");
+  const pigDir = path.join(home, ".pig", "agent");
+  try {
+    await mkdir(piDir, { recursive: true });
+    await mkdir(pigDir, { recursive: true });
+    await writeFile(path.join(piDir, "settings.json"), JSON.stringify({
+      servitors: { extensions: ["npm:pi-provider"] },
+    }));
+    await writeFile(path.join(pigDir, "settings.json"), JSON.stringify({
+      servitors: { extensions: ["npm:pig-provider"], roles: { coder: { extensions: ["npm:pig-coder"] } } },
+    }));
+    await writeFile(path.join(pigDir, "servitors.json"), JSON.stringify({ extensions: ["npm:pig-other"] }));
+    const config = loadServitorConfig(path.join(home, "project"), {});
+    assert.deepEqual(resolveRoleExtensions(config, "coder"), ["npm:pi-provider"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("explicit Pi directory replaces default globals while retaining project and env extensions", async (t) => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "servitors-home-"));
+  t.mock.method(os, "homedir", () => home);
+  const customDir = path.join(home, "custom-agent");
+  const project = path.join(home, "project");
+  try {
+    for (const dir of [customDir, path.join(home, ".pi", "agent"), path.join(home, ".pig", "agent"), path.join(project, ".pi")]) {
+      await mkdir(dir, { recursive: true });
+    }
+    await writeFile(path.join(home, ".pi", "agent", "settings.json"), JSON.stringify({
+      servitors: { extensions: ["npm:default-provider"] },
+    }));
+    await writeFile(path.join(home, ".pig", "agent", "settings.json"), JSON.stringify({
+      servitors: { extensions: ["npm:pig-provider"] },
+    }));
+    await writeFile(path.join(customDir, "servitors.json"), JSON.stringify({ extensions: ["./provider.ts"] }));
+    await writeFile(path.join(customDir, "settings.json"), JSON.stringify({
+      servitors: { roles: { coder: { extensions: ["npm:custom-coder"] } } },
+    }));
+    await writeFile(path.join(project, ".pi", "settings.json"), JSON.stringify({
+      servitors: { extensions: ["npm:project-provider"] },
+    }));
+    const config = loadServitorConfig(project, {
+      PI_CODING_AGENT_DIR: customDir,
+      PI_SERVITORS_EXTENSIONS: "npm:env-provider",
+    });
+    assert.deepEqual(resolveRoleExtensions(config, "coder"), [
+      path.join(customDir, "provider.ts"), "npm:project-provider", "npm:env-provider", "npm:custom-coder",
+    ]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("loadServitorConfig reads from filesystem and environment variable", async () => {
   const tmpDir = path.join(os.tmpdir(), `servitors-cfg-test-${Date.now()}`);
   const projectPi = path.join(tmpDir, ".pi");
@@ -105,9 +161,9 @@ test("loadServitorConfig reads from filesystem and environment variable", async 
       PI_SERVITORS_EXTENSIONS: "npm:from-env-1, npm:from-env-2",
     });
 
-    assert.ok(config.extensions?.includes("npm:from-servitors-json"));
-    assert.ok(config.extensions?.includes("npm:from-env-1"));
-    assert.ok(config.extensions?.includes("npm:from-env-2"));
+    assert.deepEqual(config.extensions, [
+      "npm:from-servitors-json", "npm:from-env-1", "npm:from-env-2",
+    ]);
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }

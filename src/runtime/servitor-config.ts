@@ -8,11 +8,14 @@ export type ServitorConfig = {
   roles?: Partial<Record<Role, { extensions?: string[] }>>;
 };
 
-function readJsonFile(filePath: string): unknown {
+type ConfigDocument = Record<string, unknown>;
+
+function readJsonFile(filePath: string): ConfigDocument | null {
   try {
     if (!existsSync(filePath)) return null;
-    const content = readFileSync(filePath, "utf8");
-    return JSON.parse(content);
+    const raw: unknown = JSON.parse(readFileSync(filePath, "utf8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    return raw as ConfigDocument;
   } catch {
     return null;
   }
@@ -110,25 +113,17 @@ export function loadServitorConfig(
 ): ServitorConfig {
   const configs: ServitorConfig[] = [];
 
-  // 1. Global config from ~/.pi/agent, ~/.pig/agent, or PI_CODING_AGENT_DIR
-  const globalDirs = [
-    env.PI_CODING_AGENT_DIR ? path.resolve(env.PI_CODING_AGENT_DIR) : null,
-    path.join(os.homedir(), ".pi", "agent"),
-    path.join(os.homedir(), ".pig", "agent"),
-  ].filter((d): d is string => Boolean(d));
-
-  for (const dir of globalDirs) {
-    const servitorsFile = path.join(dir, "servitors.json");
-    const settingsFile = path.join(dir, "settings.json");
-
-    const servitorsData = readJsonFile(servitorsFile);
-    if (servitorsData) {
-      configs.push(parseServitorsJson(servitorsData, dir));
-    }
-    const settingsData = readJsonFile(settingsFile);
-    if (settingsData) {
-      configs.push(parseSettingsJson(settingsData, dir));
-    }
+  // Match ProfileStore: use one active Pi directory, never merge another installation.
+  const globalDir = env.PI_CODING_AGENT_DIR
+    ? path.resolve(env.PI_CODING_AGENT_DIR)
+    : path.join(os.homedir(), ".pi", "agent");
+  const servitorsData = readJsonFile(path.join(globalDir, "servitors.json"));
+  if (servitorsData) {
+    configs.push(parseServitorsJson(servitorsData, globalDir));
+  }
+  const settingsData = readJsonFile(path.join(globalDir, "settings.json"));
+  if (settingsData) {
+    configs.push(parseSettingsJson(settingsData, globalDir));
   }
 
   // 2. Project config from <cwd>/.pi
