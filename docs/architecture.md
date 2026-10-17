@@ -124,3 +124,40 @@ flowchart TB
 ```
 
 Each callback carries its own `TASK_ID`, so completions can arrive in any order.
+
+## Flow diagnostics
+
+`FlowJournal` is shared by `WorkerRuntime` and the extension's delegation hooks.
+Provisioning records stage start/success/failure/cancellation around host selection,
+lock acquisition, dependency/profile preparation, shell readiness, command
+submission, Pi detection, naming and pi-link connection. Successful `link_send`
+results enter callback wait; failed sends do not. Observing a callback completes
+its diagnostic run, not acceptance of the task result.
+
+The journal does not infer worker receipt, model activity or execution from
+transport success. It observes only Lead-side boundaries. The existing UI's local
+telemetry is not a new control loop, and diagnostics never poll for completion,
+replay a launch/task, or restart/adopt a process.
+
+Events are schema-validated, metadata-only `pi-servitors:diagnostic-v1` custom
+session entries; Pi excludes these from model context. `session_start` and
+`session_tree` replay the active branch. Reloaded unfinished runs are marked
+`unconfirmed`; replay does not resume operations. Current runtime provenance and
+each event's source fingerprint are separate so incidents can outlive a reload.
+The fingerprint captures source files at runtime creation, not proof of the
+worker's loaded modules or provider/model.
+
+Memory/report snapshots bound recent events and compact run summaries separately
+(200 each). Long waits keep their summary when old timeline events roll out;
+completed summaries are evicted first. If unresolved runs themselves exceed the
+limit, the snapshot explicitly reports lost run coverage. Older raw custom entries
+remain in Pi's normal session file. Successful retries supersede current failure
+findings without deleting retained historical evidence.
+
+`team_runtime_status` exposes process/connectivity observations and progress.
+`team_runtime_doctor` separates prerequisite health from flow health and compares
+current worker/link observations with recorded transitions. JSON `details` retain
+bounded structured evidence while text output is capped. Optional report export
+uses exclusive creation and private permissions, excludes raw errors/configuration
+bodies, and never reads terminal output or exports a full transcript. Session
+paths, task IDs and routing identities are still visible metadata.

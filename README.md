@@ -70,6 +70,44 @@ Lead
 
 Workers are not created until their role is requested.
 
+## Diagnosing a stalled flow
+
+Use the existing commands for a one-shot snapshot, not a completion polling loop:
+
+```text
+/team-status
+/team-doctor
+/team-doctor --report
+```
+
+- **Status** separates observed process/link state from flow progress: current
+  phase, time in that phase, last confirmed transition, run ID and pending
+  `TASK_ID`s. Launch submission is not proof Pi executed; successful `link_send`
+  is not proof the worker received or started the task.
+- **Doctor** reports environment prerequisites separately from execution health,
+  explains incomplete/failed transitions, and suggests the next safe check. It
+  includes package origin/fingerprint, configuration sources and configured
+  extensions. These do not establish the actual worker provider/model.
+- **Report** explicitly writes a private JSON file under
+  `$PI_CODING_AGENT_DIR/servitors/diagnostics/` (otherwise
+  `~/.pi/agent/servitors/diagnostics/`). Share the printed path when investigating
+  a hang, preferably before restarting or resending the task. The equivalent tool
+  call is `team_runtime_doctor` with `{ "report": true }`.
+
+The journal is persisted as non-context custom entries in the Lead's Pi session.
+It starts collecting after this version is loaded; earlier runs have no retroactive
+history. Reload/resume/tree navigation reconstruct the selected branch only;
+unfinished restored operations are **unconfirmed**, not assumed to be still
+running. A long wait alone is not classified as a deadlock.
+
+Snapshots retain up to 200 recent events and 200 run summaries, preferentially
+retaining unresolved runs. Truncation and persistence failures are reported.
+Reports contain metadata, not task bodies, prompts, raw errors, terminal output,
+credentials or full sessions. Task IDs, identities and local paths remain visible;
+review before sharing. The original tool result/session remains the source for
+raw error details. Commands do not start, restart or adopt workers; only the
+explicit report option writes a file.
+
 ## Worker Extensions
 
 By default, workers start in a lean environment (`-ne`) without ambient user extensions. To enable model provider extensions (such as Antigravity) or custom tools in subagent worker sessions, declare them in your Pi `settings.json` (`~/.pi/agent/settings.json` or `.pi/settings.json`):

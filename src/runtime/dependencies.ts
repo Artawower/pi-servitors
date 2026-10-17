@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ROLE_CONFIG } from "../config.ts";
 import { RuntimeFailure } from "../errors.ts";
+import { inspectWorkerConfiguration, type WorkerConfiguration } from "../diagnostics/configuration.ts";
 import type { Role } from "../types.ts";
 import {
   loadServitorConfig,
@@ -66,6 +67,10 @@ export class RuntimeDependencies {
           ". For a local checkout run `npm install`; npm/git Pi installs install these automatically.",
       );
     }
+  }
+
+  configuration(cwd: string): WorkerConfiguration {
+    return inspectWorkerConfiguration(cwd, this.env, this.configOverrides);
   }
 
   buildPiArgs(role: Role, linkName: string, cwd: string = process.cwd()): string[] {

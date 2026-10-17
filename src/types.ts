@@ -1,3 +1,8 @@
+import type { FlowEvent, FlowProgress } from "./diagnostics/journal.ts";
+import type { DiagnosticFinding } from "./diagnostics/assessment.ts";
+import type { RuntimeProvenance } from "./diagnostics/provenance.ts";
+import type { WorkerConfiguration } from "./diagnostics/configuration.ts";
+
 export const ROLES = ["coder", "reviewer", "researcher-code"] as const;
 export type Role = (typeof ROLES)[number];
 
@@ -100,6 +105,32 @@ export type ReadyResult = {
   link: LinkConnection;
 };
 
+export type RuntimeDiagnostics = {
+  session?: { file: string | null; id: string | null };
+  provenance: RuntimeProvenance;
+  configuration: WorkerConfiguration | null;
+  runs: FlowProgress[];
+  recent_events: FlowEvent[];
+  findings: DiagnosticFinding[];
+  persistence_error: boolean;
+  history_limit: number;
+  history_truncated: boolean;
+  runs_truncated: boolean;
+};
+
+export type RuntimeRoleStatus = {
+  role: Role;
+  state: string;
+  runtime_name: string;
+  link_target: string | null;
+  link_connected: boolean | null;
+  slot: string | null;
+  expected_slot: string | null;
+  profile: string;
+  progress: FlowProgress | null;
+  tasks: FlowProgress[];
+};
+
 export type RuntimeStatusResult = {
   status: "ok";
   backend?: string;
@@ -108,13 +139,19 @@ export type RuntimeStatusResult = {
   cwd: string;
   lead_link: LeadLink | null;
   lead_link_error: string | null;
-  roles: Array<Record<string, unknown>>;
+  roles: RuntimeRoleStatus[];
   link_status?: Record<string, unknown>;
+  diagnostics: RuntimeDiagnostics;
 };
 
 export type DoctorResult = {
   status: "ok";
   healthy: boolean;
+  environment_health: "healthy" | "unhealthy";
+  execution_health: "no_observations" | "no_pending_transitions" | "pending" | "attention_required";
+  diagnostics: RuntimeDiagnostics;
+  report_file?: string;
+  workers: RuntimeRoleStatus[];
   cwd: string;
   selected_backend: string | null;
   host_backends: HostDetection[];

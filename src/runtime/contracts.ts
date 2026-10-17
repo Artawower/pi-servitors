@@ -1,4 +1,5 @@
 import type { LinkConnection, LinkSnapshot, Role } from "../types.ts";
+import type { WorkerConfiguration } from "../diagnostics/configuration.ts";
 
 export interface LinkStatusProvider {
   snapshot(timeoutMs?: number): Promise<LinkSnapshot>;
@@ -19,6 +20,7 @@ export interface WorkerDependencySet {
   assertAvailable(): Promise<void>;
   status(): Promise<Array<Record<string, unknown> & { exists: boolean }>>;
   buildPiArgs(role: Role, linkName: string, cwd?: string): string[];
+  configuration?(cwd: string): WorkerConfiguration;
 }
 
 export interface RuntimeMutex {

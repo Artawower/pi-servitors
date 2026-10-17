@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Role } from "../types.ts";
@@ -10,14 +10,16 @@ export type ServitorConfig = {
 
 type ConfigDocument = Record<string, unknown>;
 
-function readJsonFile(filePath: string): ConfigDocument | null {
+type ConfigRead = { status: ConfigSource["status"]; document: ConfigDocument | null };
+
+function readJsonFile(filePath: string): ConfigRead {
   try {
-    if (!existsSync(filePath)) return null;
     const raw: unknown = JSON.parse(readFileSync(filePath, "utf8"));
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-    return raw as ConfigDocument;
-  } catch {
-    return null;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { status: "invalid_or_unreadable", document: null };
+    return { status: "loaded", document: raw as ConfigDocument };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return { status: code === "ENOENT" || code === "ENOTDIR" ? "missing" : "invalid_or_unreadable", document: null };
   }
 }
 
@@ -107,21 +109,38 @@ export function resolveRoleExtensions(config: ServitorConfig, role: Role): strin
   return Array.from(new Set([...common, ...roleSpecific]));
 }
 
-export function loadServitorConfig(
+export type ConfigSource = {
+  path: string;
+  status: "loaded" | "missing" | "invalid_or_unreadable";
+};
+
+export type ServitorConfigDetails = {
+  config: ServitorConfig;
+  sources: ConfigSource[];
+  environment_extensions_present: boolean;
+};
+
+export function inspectServitorConfig(
   cwd: string = process.cwd(),
   env: NodeJS.ProcessEnv = process.env,
-): ServitorConfig {
+): ServitorConfigDetails {
   const configs: ServitorConfig[] = [];
+  const sources: ConfigSource[] = [];
+  const readSource = (file: string): ConfigDocument | null => {
+    const result = readJsonFile(file);
+    sources.push({ path: file, status: result.status });
+    return result.document;
+  };
 
   // Match ProfileStore: use one active Pi directory, never merge another installation.
   const globalDir = env.PI_CODING_AGENT_DIR
     ? path.resolve(env.PI_CODING_AGENT_DIR)
     : path.join(os.homedir(), ".pi", "agent");
-  const servitorsData = readJsonFile(path.join(globalDir, "servitors.json"));
+  const servitorsData = readSource(path.join(globalDir, "servitors.json"));
   if (servitorsData) {
     configs.push(parseServitorsJson(servitorsData, globalDir));
   }
-  const settingsData = readJsonFile(path.join(globalDir, "settings.json"));
+  const settingsData = readSource(path.join(globalDir, "settings.json"));
   if (settingsData) {
     configs.push(parseSettingsJson(settingsData, globalDir));
   }
@@ -131,11 +150,11 @@ export function loadServitorConfig(
   const projServitorsFile = path.join(projectPiDir, "servitors.json");
   const projSettingsFile = path.join(projectPiDir, "settings.json");
 
-  const projServitorsData = readJsonFile(projServitorsFile);
+  const projServitorsData = readSource(projServitorsFile);
   if (projServitorsData) {
     configs.push(parseServitorsJson(projServitorsData, projectPiDir));
   }
-  const projSettingsData = readJsonFile(projSettingsFile);
+  const projSettingsData = readSource(projSettingsFile);
   if (projSettingsData) {
     configs.push(parseSettingsJson(projSettingsData, projectPiDir));
   }
@@ -152,5 +171,12 @@ export function loadServitorConfig(
     }
   }
 
-  return mergeConfigs(configs);
+  return { config: mergeConfigs(configs), sources, environment_extensions_present: Boolean(envExts?.trim()) };
+}
+
+export function loadServitorConfig(
+  cwd: string = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): ServitorConfig {
+  return inspectServitorConfig(cwd, env).config;
 }
