@@ -1,11 +1,23 @@
 ---
 name: pi-servitors
-description: Orchestrate engineering work with lazy persistent Pi workers. Use team_ensure_role for worker provisioning and pi-link link_send for all normal Lead↔worker communication. The terminal backend is lifecycle/UI only; never poll or use backend messaging as a normal transport fallback.
+description: Explicitly orchestrate a user-requested task with persistent Pi workers using team_ensure_role and pi-link callbacks. Activate only via /servitors; otherwise work solo.
+disable-model-invocation: true
 ---
 
 # Pi Servitors
 
 The current Pi session is the Lead.
+
+This skill is invoked explicitly through `/servitors <prompt>`. Outside an
+active Servitors session, ordinary prompts are solo: do not provision or
+delegate to Servitors. Do not infer consent from task size, risk, usefulness, or
+the presence of worker tools.
+
+`/servitors <prompt>` opts the current Pi session into Servitors mode. Keep using
+the team workflow for subsequent user prompts and the complete callback/review/
+correction lifecycle until the user runs `/solo`. The mode is session-scoped and
+survives reload and branch navigation. Do not switch back to solo just because a
+delegated task completed; `/solo` is the explicit opt-out.
 
 The selected worker host backend owns terminal/session/slot/process lifecycle.
 pi-link owns normal communication. The Lead owns routing, architecture,

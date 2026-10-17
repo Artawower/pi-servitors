@@ -7,12 +7,15 @@ type Handler = (event: any, ctx: any) => unknown;
 
 test("failed link_send results do not leave a delegation widget behind", async (t) => {
   const handlers = new Map<string, Handler>();
+  let activeTools: string[] = [];
   const pi = {
     on(event: string, handler: Handler) {
       handlers.set(event, handler);
       return () => {};
     },
-    registerTool() {},
+    registerTool(tool: { name: string }) { activeTools.push(tool.name); },
+    getActiveTools() { return [...activeTools]; },
+    setActiveTools(names: string[]) { activeTools = [...names]; },
     registerCommand() {},
   } as unknown as ExtensionAPI;
   piServitors(pi);

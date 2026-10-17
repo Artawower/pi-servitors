@@ -41,21 +41,21 @@ Run `/reload` after installing or updating the package.
 
 ## Usage
 
-Provision a worker when needed:
+Ordinary prompts run solo. Start a Servitors task explicitly with its prompt:
 
 ```text
-/team-ensure coder
-/team-ensure reviewer
-/team-ensure researcher-code
+/servitors implement the requested feature and verify it
 ```
 
-Or use the LLM tools:
+That opts the current Pi session into Servitors mode: follow the team workflow
+for subsequent prompts as well as the initial task, including callbacks, useful
+research, implementation, review, and final verification. Run `/solo` to return
+to solo work. The mode survives reload and branch navigation. The
+worker-provisioning tool is hidden outside Servitors mode; `/team-ensure` is
+deprecated.
 
-```text
-team_ensure_role
-team_runtime_status
-team_runtime_doctor
-```
+Read-only diagnostics remain available as `team_runtime_status` and
+`team_runtime_doctor`.
 
 A normal delegation looks like:
 

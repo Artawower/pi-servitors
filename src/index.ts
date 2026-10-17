@@ -24,13 +24,6 @@ function hasOperationalError(details: unknown): boolean {
   );
 }
 
-function normalizeRole(value: string): "coder" | "reviewer" | "researcher-code" | null {
-  const role = value.trim().toLowerCase();
-  if (role === "researcher") return "researcher-code";
-  if (role === "coder" || role === "reviewer" || role === "researcher-code") return role;
-  return null;
-}
-
 function withSession<T extends DoctorResult | RuntimeStatusResult>(result: T, ctx: ExtensionContext): T {
   result.diagnostics.session = {
     file: ctx.sessionManager?.getSessionFile?.() ?? null,
@@ -53,6 +46,15 @@ export default function piServitors(pi: ExtensionAPI) {
 
   const delegations = new DelegationTracker();
   const delegationView = new DelegationStatusView(delegations, linkStatus);
+  let servitorsMode = false;
+  const setServitorsMode = (enabled: boolean, persist = false) => {
+    servitorsMode = enabled;
+    const activeTools = new Set(pi.getActiveTools());
+    if (enabled) activeTools.add("team_ensure_role");
+    else activeTools.delete("team_ensure_role");
+    pi.setActiveTools([...activeTools]);
+    if (persist) pi.appendEntry("pi-servitors:mode-v1", { enabled });
+  };
 
   const restore = (ctx: ExtensionContext) => {
     journal.restore(ctx.sessionManager.getBranch().flatMap((entry) =>
@@ -63,6 +65,19 @@ export default function piServitors(pi: ExtensionAPI) {
         !["running", "unconfirmed"].includes(run.state) || !run.task_id || !run.target) continue;
       delegations.start({ taskId: run.task_id, target: run.target, role: run.role }, run.started_at);
     }
+    const branch = ctx.sessionManager.getBranch();
+    let modeEntry: (typeof branch)[number] | undefined;
+    for (let index = branch.length - 1; index >= 0; index--) {
+      const entry = branch[index];
+      if (entry?.type === "custom" && entry.customType === "pi-servitors:mode-v1" &&
+        entry.data && typeof entry.data === "object" && "enabled" in entry.data) {
+        modeEntry = entry;
+        break;
+      }
+    }
+    const enabled = Boolean(modeEntry?.type === "custom" &&
+      (modeEntry.data as { enabled?: unknown }).enabled === true);
+    setServitorsMode(enabled);
     delegationView.render(ctx.ui);
   };
   pi.on("session_start", async (_event, ctx) => restore(ctx));
@@ -124,13 +139,23 @@ export default function piServitors(pi: ExtensionAPI) {
   pi.on("session_shutdown", async (_event, ctx) => {
     delegations.clear();
     journal.clear();
+    setServitorsMode(false);
     delegationView.clear(ctx.ui);
+  });
+
+  pi.on("before_agent_start", async (event, _ctx) => {
+    if (!servitorsMode) return;
+    const guideline = "Servitors mode is active for this Pi session. Route substantive user work through the pi-servitors team workflow; do not switch to solo mode unless the user runs /solo.";
+    if (!event.systemPromptOptions.promptGuidelines.includes(guideline)) {
+      event.systemPromptOptions.promptGuidelines.push(guideline);
+    }
   });
 
   pi.registerTool({
     name: "team_ensure_role",
     label: "Workers: ensure role",
     description:
+      "Provision workers only for an explicit user task started with /servitors <prompt>. " +
       "Ensure exactly one managed worker for coder/reviewer/researcher-code in the current terminal host scope. " +
       "The runtime starts or reuses the worker, inherits the Lead pi-link group, and returns the exact link_target plus Lead reply identity. " +
       "After READY, normal delegation MUST use pi-link link_send. Do not poll status/list tools while waiting and do not fall back to terminal-host messaging.",
@@ -181,6 +206,34 @@ export default function piServitors(pi: ExtensionAPI) {
     },
   });
 
+  setServitorsMode(false);
+
+  pi.registerCommand("servitors", {
+    description: "Run a task with the pi-servitors team: /servitors <prompt>",
+    handler: (args, ctx) => {
+      const prompt = args.trim();
+      if (!prompt) {
+        ctx.ui.notify("Usage: /servitors <prompt>", "error");
+        return Promise.resolve();
+      }
+      if (!ctx.isIdle()) {
+        ctx.ui.notify("Pi is busy. Start /servitors <prompt> when the current turn is complete.", "warning");
+        return Promise.resolve();
+      }
+      setServitorsMode(true, true);
+      pi.sendUserMessage(`/skill:pi-servitors\n\n${prompt}`, { expandPromptTemplates: true });
+      return Promise.resolve();
+    },
+  });
+
+  pi.registerCommand("solo", {
+    description: "Return this Pi session to solo mode",
+    handler: (_args, _ctx) => {
+      setServitorsMode(false, true);
+      return Promise.resolve();
+    },
+  });
+
   pi.registerCommand("team-status", {
     description: "Show worker processes, observed phases, elapsed waits and pending callbacks",
     handler: async (_args, ctx) => {
@@ -193,18 +246,10 @@ export default function piServitors(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("team-ensure", {
-    description: "Ensure one role: coder | reviewer | researcher-code",
-    handler: async (args, ctx) => {
-      const role = normalizeRole(args);
-      if (!role) {
-        ctx.ui.notify("Usage: /team-ensure coder|reviewer|researcher-code", "error");
-        return;
-      }
-      try {
-        ctx.ui.notify(formatResult(await runtime.ensureRole(ctx.cwd, role, ctx.signal)), "info");
-      } catch (error) {
-        ctx.ui.notify(String(error), "error");
-      }
+    description: "Deprecated: start team tasks with /servitors <prompt>",
+    handler: (_args, ctx) => {
+      ctx.ui.notify("Start a Servitors task with /servitors <prompt>.", "info");
+      return Promise.resolve();
     },
   });
 
